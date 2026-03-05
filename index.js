@@ -1,7 +1,22 @@
 import express from "express";
+import cors from "cors";
+import yahooFinance from "yahoo-finance2";
+import { createClient } from 'redis';
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const client = createClient({
+  url: process.env.REDIS_KEY
+});
+
+client.on('error', err => console.log('Redis Client Error', err));
+
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const yf = new yahooFinance();
 
 app.use(express.json());
 
@@ -12,6 +27,45 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
   res.json({ status: "ok", uptime: process.uptime() });
 });
+
+
+app.post("/initiate-company-analysis",async(req,res)=>{
+  const {ticker, startDate, endDate} = req.body;
+
+  try {
+
+    const key = `${ticker}:${startDate}:${endDate}`;
+
+    //cache check
+    const cachedData = await client.get(key);
+    if(cachedData){
+      console.log("Cache hit for key:", key);
+      return res.json({ d: JSON.parse(cachedData) });
+    }
+
+
+    
+    const data = await yf.historical(ticker, { period1: startDate, period2: endDate });
+    const d = data.map((entry) => ({
+      date: entry.date,
+      open: entry.open,
+      high: entry.high,
+      low: entry.low,
+      close: entry.close,
+      volume: entry.volume
+    }));
+
+    //cache the data for 1 hour
+    await client.setEx(key, 3600, JSON.stringify(d));
+    console.log("Data cached with key:", key);
+
+    res.json({ d });
+  } catch (error) {
+    console.error(error);
+    console.error("Error fetching data for ticker:", ticker, "with dates:", startDate, endDate);
+    res.status(500).json({ error: "Failed to fetch data" });
+  }
+})
 
 // 404 handler
 app.use((req, res) => {
@@ -24,4 +78,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT, async() => {
+  await client.connect();
+  console.log(`Server running on http://localhost:${PORT}`);
+});
