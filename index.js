@@ -10,7 +10,7 @@ dotenv.config();
 const client = createClient({
   url: process.env.REDIS_KEY
 });
-
+await client.connect();
 const rabbitmqUrl = process.env.RABITMQ_KEY;
 
 
@@ -26,10 +26,12 @@ async function connectRabbitMQ() {
 
 
 let Queue = "main_queue";
+const responseQueue = "response_queue";
 
 let conn = await amqplib.connect(rabbitmqUrl);
-const channel = await conn.createChannel();
+let channel = await conn.createChannel();
 
+await channel.assertQueue(responseQueue, { durable: false });
 await channel.assertQueue(Queue, { durable: true });
 await channel.assertExchange("amq.direct", "direct", { durable: true });
 
@@ -41,7 +43,19 @@ await channel.consume(Queue, (msg) => {
 }, { noAck: false }); 
 
 
+const pending = new Map();
 
+channel.consume(responseQueue, (msg) => {
+  const id = msg.properties.correlationId;
+  const req = pending.get(id);
+  if (!req) return channel.ack(msg);
+  req.collected.push(JSON.parse(msg.content.toString()));
+  channel.ack(msg);
+  if (req.collected.length === 3) {
+    req.resolve(req.collected);
+    pending.delete(id);
+  }
+}, { noAck: false });
 
 
 client.on('error', err => console.log('Redis Client Error', err));
@@ -68,13 +82,31 @@ app.post("/initiate-company-analysis",async(req,res)=>{
 
   try {
 
+    const senderQueue = ["ema_queue", "rsi_queue", "sma_queue"];
     const key = `${ticker}:${startDate}:${endDate}`;
 
     //cache check
     const cachedData = await client.get(key);
     if(cachedData){
       console.log("Cache hit for key:", key);
-      return res.json({ d: JSON.parse(cachedData) });
+      const correlationId = crypto.randomUUID();
+
+      for (const queue of senderQueue) {
+        channel.sendToQueue(queue,
+          Buffer.from(JSON.stringify({ type: queue.split("_")[0], key })),
+          { persistent: true, correlationId, replyTo: responseQueue }
+        );
+      }
+
+    const results = await new Promise((resolve) => {
+      pending.set(correlationId, { collected: [], resolve });
+    });
+
+    return res.json({ results });
+
+
+
+
     }
 
 
@@ -91,9 +123,24 @@ app.post("/initiate-company-analysis",async(req,res)=>{
 
     //cache the data for 1 hour
     await client.setEx(key, 3600, JSON.stringify(d));
-    console.log("Data cached with key:", key);
 
-    res.json({ d });
+    const correlationId = crypto.randomUUID();
+
+for (const queue of senderQueue) {
+  channel.sendToQueue(queue,
+    Buffer.from(JSON.stringify({ type: queue.split("_")[0], key })),
+    { persistent: true, correlationId, replyTo: responseQueue }
+  );
+
+  console.log("Sent message to queue:", queue, "with key:", key);
+
+}
+
+    const results = await new Promise((resolve) => {
+  pending.set(correlationId, { collected: [], resolve });
+});
+
+return res.json({ results });
   } catch (error) {
     console.error(error);
     console.error("Error fetching data for ticker:", ticker, "with dates:", startDate, endDate);
@@ -104,7 +151,7 @@ app.post("/initiate-company-analysis",async(req,res)=>{
 
 app.get("/send-message-via-queue/:message", async (req, res) => {
   const message = req.params.message;
-  const senderQueue = "fin_queue";
+  const senderQueue = "ema_queue";
   try {
     await channel.sendToQueue(senderQueue, Buffer.from(message), { persistent: true });
     console.log("Sent message to queue:", message);
@@ -127,7 +174,5 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, async() => {
-  await client.connect();
-  await connectRabbitMQ();
   console.log(`Server running on http://localhost:${PORT}`);
 });
