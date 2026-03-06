@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/mdrayaanpasha/QUANTIVA_3.0_SERVICE_1#readme",
   "dependencies": {
+    "amqplib": "^0.10.9",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
