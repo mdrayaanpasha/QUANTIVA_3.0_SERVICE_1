@@ -3,12 +3,46 @@ import cors from "cors";
 import yahooFinance from "yahoo-finance2";
 import { createClient } from 'redis';
 import dotenv from "dotenv";
+import amqplib from "amqplib";
 
 dotenv.config();
 
 const client = createClient({
   url: process.env.REDIS_KEY
 });
+
+const rabbitmqUrl = process.env.RABITMQ_KEY;
+
+
+async function connectRabbitMQ() {
+  try {
+    const connection = await amqplib.connect(rabbitmqUrl);
+    channel = await connection.createChannel();
+    console.log("Connected to RabbitMQ");
+  } catch (error) {
+    console.error("Failed to connect to RabbitMQ:", error);
+  }
+}
+
+
+let Queue = "main_queue";
+
+let conn = await amqplib.connect(rabbitmqUrl);
+const channel = await conn.createChannel();
+
+await channel.assertQueue(Queue, { durable: true });
+await channel.assertExchange("amq.direct", "direct", { durable: true });
+
+await channel.consume(Queue, (msg) => {
+  if (msg !== null) {
+    console.log("Received message:", msg.content.toString());
+    channel.ack(msg);
+  }
+}, { noAck: false }); 
+
+
+
+
 
 client.on('error', err => console.log('Redis Client Error', err));
 
@@ -67,6 +101,20 @@ app.post("/initiate-company-analysis",async(req,res)=>{
   }
 })
 
+
+app.get("/send-message-via-queue/:message", async (req, res) => {
+  const message = req.params.message;
+  const senderQueue = "fin_queue";
+  try {
+    await channel.sendToQueue(senderQueue, Buffer.from(message), { persistent: true });
+    console.log("Sent message to queue:", message);
+    res.json({ status: "Message sent to queue", message });
+  } catch (error) {
+    console.error("Failed to send message to queue:", error);
+    res.status(500).json({ error: "Failed to send message to queue" });
+  }   
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
@@ -80,5 +128,6 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, async() => {
   await client.connect();
+  await connectRabbitMQ();
   console.log(`Server running on http://localhost:${PORT}`);
 });
