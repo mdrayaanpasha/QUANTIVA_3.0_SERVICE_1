@@ -112,6 +112,11 @@ app.post("/initiate-company-analysis",async(req,res)=>{
 
     
     const data = await yf.historical(ticker, { period1: startDate, period2: endDate });
+
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: `No data found for ticker: ${ticker}` });
+      }
+
     const d = data.map((entry) => ({
       date: entry.date,
       open: entry.open,
