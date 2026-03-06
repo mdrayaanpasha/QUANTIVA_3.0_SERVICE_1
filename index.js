@@ -172,6 +172,7 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
+app.use(cors());
 // Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
