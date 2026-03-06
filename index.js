@@ -5,6 +5,8 @@ import { createClient } from 'redis';
 import dotenv from "dotenv";
 import amqplib from "amqplib";
 
+
+
 dotenv.config();
 
 const client = createClient({
@@ -67,6 +69,7 @@ const PORT = process.env.PORT || 3000;
 const yf = new yahooFinance();
 
 app.use(express.json());
+app.use(cors());
 
 app.get("/", (req, res) => {
   res.json({ message: "Server is running" });
@@ -172,7 +175,6 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-app.use(cors());
 // Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
