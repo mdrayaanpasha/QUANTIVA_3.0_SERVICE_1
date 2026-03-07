@@ -99,13 +99,14 @@ app.post("/initiate-company-analysis",async(req,res)=>{
           Buffer.from(JSON.stringify({ type: queue.split("_")[0], key })),
           { persistent: true, correlationId, replyTo: responseQueue }
         );
+        console.log("Sent message to queue:", queue, "with key:", key);
       }
 
     const results = await new Promise((resolve) => {
       pending.set(correlationId, { collected: [], resolve });
     });
 
-    return res.json({ results });
+    return res.json({ results, source: "fetched", cache: true, data: JSON.parse(cachedData) });
 
 
 
