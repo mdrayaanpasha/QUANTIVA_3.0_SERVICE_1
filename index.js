@@ -148,7 +148,7 @@ for (const queue of senderQueue) {
   pending.set(correlationId, { collected: [], resolve });
 });
 
-return res.json({ results });
+return res.json({ results, source: "fetched", cache: false, data: d });
   } catch (error) {
     console.error(error);
     console.error("Error fetching data for ticker:", ticker, "with dates:", startDate, endDate);
